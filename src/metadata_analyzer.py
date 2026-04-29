@@ -142,16 +142,43 @@ def analyze_metadata(file_path: str) -> dict:
 
 if __name__ == "__main__":
     import os
+    import csv
     
     current_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.dirname(current_dir) 
+    raw_dir = os.path.join(base_dir, "data", "raw")
+    report_path = os.path.join(base_dir, "data", "metadata_test_raporu.csv")
     
-
-    test_image_path = os.path.join(base_dir, "data", "raw", "Test.jpg")
-
-    print(f"--- Analiz Başlatılıyor: {test_image_path} ---")
+    print(f"--- Toplu Analiz Başlatılıyor: {raw_dir} ---")
     
-    if os.path.exists(test_image_path):
-        analyze_metadata(test_image_path)
+    if not os.path.exists(raw_dir):
+        os.makedirs(raw_dir)
+        print(f"Uyarı: {raw_dir} klasörü yoktu, oluşturuldu.")
+        
+    valid_exts = (".jpg", ".jpeg", ".png", ".tiff")
+    image_files = [f for f in os.listdir(raw_dir) if f.lower().endswith(valid_exts)]
+    
+    if not image_files:
+        print("Klasörde analiz edilecek fotoğraf bulunamadı. Lütfen data/raw klasörüne fotoğraf ekleyin.")
     else:
-        print("Hata: Fotoğraf data/raw klasöründe bulunamadı!")
+        with open(report_path, mode="w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Dosya Adi", "AI Izi Bulundu Mu?", "Bulunan Izler", "Kullanilan Yazilim (Software)"])
+            
+            for img_name in image_files:
+                img_path = os.path.join(raw_dir, img_name)
+                print(f"\n{'='*40}\nİnceleniyor: {img_name}...")
+                
+                tags = analyze_metadata(img_path)
+                
+                if tags:
+                    is_ai, signatures = detect_ai_signature(tags)
+                    sig_text = " | ".join(signatures) if is_ai else "Temiz (Izi Yok)"
+                    software = str(tags.get("Image Software", "Bilinmiyor"))
+                else:
+                    is_ai, sig_text, software = False, "EXIF Verisi Yok", "Bilinmiyor"
+                
+                writer.writerow([img_name, "Evet" if is_ai else "Hayir", sig_text, software])
+        
+        print(f"\n[Başarılı] Tüm testler tamamlandı!")
+        print(f"[Rapor Kaydedildi] Sonuçları Excel'de açmak için: {report_path}")
