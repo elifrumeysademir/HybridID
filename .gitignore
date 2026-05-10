@@ -1,18 +1,53 @@
-# IDE
+# IDE (Gereksiz editör ve Visual Studio dosyaları)
+
+.vs/
+
 .cursor/
+
 .vscode/
+
 .idea/
 
-# Python
+*.sln
+
+*.user
+
+*.suo
+
+
+
+# Python (Derleme ve sanal ortam dosyaları)
+
 __pycache__/
+
 *.pyc
 
-# OS
+*.pyo
+
+*.pyd
+
+.env
+
+venv/
+
+.venv/
+
+
+
+# OS (İşletim sistemi kalıntıları)
+
 .DS_Store
+
 Thumbs.db
 
 # Data
 data/raw/
+
+# Project Specific (Veri setleri ve büyük modeller)
+data/
+!data/test_images/
+models/*.h5
+models/*.pth
 
 # Models & Virtual Env
 *.h5

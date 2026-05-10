@@ -1,16 +1,10 @@
 import os
 import exifread
+import sys
 
 def detect_ai_signature(tags: dict) -> tuple[bool, list[str]]:
     """
-    EXIF etiketlerini analiz ederek bilinen AI (Yapay Zeka) araçlarının yazılım izlerini tespit eder.
-    
-    Args:
-        tags (dict): Görselden çıkarılan EXIF etiketlerini içeren sözlük.
-        
-    Returns:
-        tuple[bool, list[str]]: Şüpheli bir iz bulunup bulunmadığını (True/False) ve 
-                                bulunan izlerin detaylarını içeren bir liste döner.
+    EXIF etiketlerini analiz ederek bilinen AI araçlarının yazılım izlerini tespit eder. [cite: 79, 80]
     """
     ai_keywords = [
         # Popüler AI Görüntü Üreticileri ve Modeller (A-Z)
@@ -39,7 +33,7 @@ def detect_ai_signature(tags: dict) -> tuple[bool, list[str]]:
         "generative fill", "img2img", "machine learning", "neural network", 
         "synthetic media", "synthography", "text-to-image", "txt2img",
         
-        # Üretim Parametreleri ve Alt Teknikler (Stable Diffusion, ComfyUI vb.)
+        # Üretim Parametreleri ve Alt Teknikler
         "a1111", "animate-diff", "cfg scale:", "clip skip:", "control module:", 
         "controlnet", "denoising strength:", "dreambooth", "face restoration:", 
         "hires steps:", "hires upscaler:", "hypernetwork", "lora:", 
@@ -48,23 +42,17 @@ def detect_ai_signature(tags: dict) -> tuple[bool, list[str]]:
     ]
     
     critical_tags = [
-        # Standart ve en çok kullanılan EXIF etiketleri
         "Image Software", "Image CreatorTool", "EXIF UserComment", 
         "Image ImageDescription", "Image Make", "Image Model",
         "Software", "CreatorTool", "UserComment", "ImageDescription", "Make", "Model",
-        
-        # Genişletilmiş etiketler (Farklı cihaz ve yazılımların kullanabileceği alanlar)
         "Image ProcessingSoftware", "Image Artist", "Image Copyright", 
         "Image DocumentName", "Image HostComputer", "Image ApplicationNotes",
         "EXIF MakerNote", "EXIF ImageUniqueID", "EXIF CameraOwnerName",
         "Image XPTitle", "Image XPComment", "Image XPAuthor", "Image XPSubject",
-        
-        # XMP, IPTC ve ExifRead'in yakalayabileceği diğer özel alanlar
         "Image PrintIM", "Image Rating", "Image History"
     ]
     
     found_signatures = []
-    
     for tag_name in critical_tags:
         if tag_name in tags:
             tag_value = str(tags[tag_name]).lower()
@@ -78,107 +66,95 @@ def detect_ai_signature(tags: dict) -> tuple[bool, list[str]]:
 
 def analyze_metadata(file_path: str) -> dict:
     """
-    Belirtilen görsel dosyasının EXIF/Metadata'sını çıkarır, AI yazılım izlerini arar 
-    ve sonucu ekrana okunabilir (human-readable) formatta yazdırır.
-    
-    Args:
-        file_path (str): İncelenecek görselin dosya yolu.
-        
-    Returns:
-        dict: Çıkarılan tüm EXIF etiketlerini içeren sözlük. Hata durumunda veya veri bulunmazsa boş sözlük döner.
+    Metadata çıkarımı yapar ve S2 gereksinimlerini karşılayan JSON yapısı döner. [cite: 28, 45]
     """
+    result = {
+        "success": False,
+        "error_message": None,
+        "file_path": file_path,
+        "is_ai_detected": False,
+        "ai_signatures_found": [],
+        "extracted_metadata": {}
+    }
+
     if not os.path.exists(file_path):
-        print(f"Hata: İncelenecek dosya bulunamadı -> {file_path}")
-        return {}
+        err_msg = f"İncelenecek dosya bulunamadı -> {file_path}"
+        print(f"Hata: {err_msg}")
+        result["error_message"] = err_msg
+        return result
         
-    # Gereksinim 1 & 2: Format doğrulama kontrolü (.jpg, .jpeg, .png)
+    # Kabul Şartı: .jpg, .jpeg, .png kontrolü [cite: 67, 68]
     valid_extensions = {".jpg", ".jpeg", ".png"}
     _, ext = os.path.splitext(file_path)
     if ext.lower() not in valid_extensions:
-        print(f"Hata: Desteklenmeyen dosya formatı ({ext}). Sistem sadece .jpg, .jpeg ve .png formatlarını kabul etmektedir. Analiz durduruldu.")
-        return {}
+        err_msg = f"Desteklenmeyen dosya formatı ({ext})."
+        print(f"Hata: {err_msg}")
+        result["error_message"] = err_msg
+        return result
         
-    tags = {}
     try:
-        # Görsel, gereksinimlerde belirtildiği üzere ikili (binary) modda (rb) okunuyor
         with open(file_path, 'rb') as image_file:
-            tags = exifread.process_file(image_file)
+            # Performans Gereksinimi: details=False ile hız optimizasyonu [cite: 104, 107]
+            tags = exifread.process_file(image_file, details=False)
             
         if not tags:
-            print("Uyarı: Metadata bulunamadı (EXIF verisi temizlenmiş olabilir veya desteklenmeyen format).")
-            return {}
+            # Kabul Şartı: Veri yoksa kullanıcı bilgilendirilmeli [cite: 71, 72]
+            err_msg = "Metadata Temizlenmiş/Yok"
+            print(f"Uyarı: {err_msg}")
+            result["error_message"] = err_msg
+            return result
             
-        print(f"\n--- Metadata Analiz Raporu: {file_path} ---")
-        print(f"Toplam {len(tags)} EXIF etiketi başarıyla çıkarıldı.")
+        print(f"\n--- Hybrid-ID Metadata Analiz Raporu: {file_path} ---")
         
-        # AI yazılım izi kontrolü yapılıyor
+        # S7 Arayüz Entegrasyonu için temiz veri yapısı [cite: 147, 148]
+        clean_tags = {str(k): str(v) for k, v in tags.items() if k not in ('JPEGThumbnail', 'TIFFThumbnail')}
+        result["extracted_metadata"] = clean_tags
+        
         is_ai, signatures = detect_ai_signature(tags)
+        result["is_ai_detected"] = is_ai
+        result["ai_signatures_found"] = signatures
+        result["success"] = True
         
         if is_ai:
             print("\n[!] Şüpheli Yazılım İzi Bulundu [!]")
             for sig in signatures:
                 print(f" - {sig}")
-            print("-" * 45)
         else:
             print("\n[+] Temiz: Bilinen bir AI aracı izine rastlanmadı.")
             
-        # Temiz ve okunabilir bir çıktı (Clean Output) için bazı önemli etiketleri özetleyelim
+        # Kritik detayları ekrana bas
+        important_tags = ["Image Make", "Image Model", "Image Software", "Image DateTime"]
         print("\nÖnemli Metadata Detayları:")
-        important_tags = [
-            "Image Make", "Image Model", "Image Software", 
-            "Image DateTime", "EXIF ExifImageWidth", "EXIF ExifImageLength"
-        ]
-        
         for tag in important_tags:
             if tag in tags:
                 print(f"{tag:<25}: {tags[tag]}")
-                
+        
         print("-------------------------------------------\n")
-        return tags
+        return result
         
     except Exception as e:
-        print(f"Hata: Dosya işlenirken beklenmeyen bir sorun oluştu: {e}")
-        return {}
+        err_msg = f"Beklenmeyen sorun: {e}"
+        print(f"Hata: {err_msg}")
+        result["error_message"] = err_msg
+        return result
 
 if __name__ == "__main__":
-    import os
-    import csv
+    print("=== Hybrid-ID Metadata Analiz Aracı (Sprint 2) ===")
     
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    base_dir = os.path.dirname(current_dir) 
-    raw_dir = os.path.join(base_dir, "data", "raw")
-    report_path = os.path.join(base_dir, "data", "metadata_test_raporu.csv")
-    
-    print(f"--- Toplu Analiz Başlatılıyor: {raw_dir} ---")
-    
-    if not os.path.exists(raw_dir):
-        os.makedirs(raw_dir)
-        print(f"Uyarı: {raw_dir} klasörü yoktu, oluşturuldu.")
+    while True:
+        user_image_path = input("\nDosya yolunu girin (Çıkış: 'q'): ").strip().strip('"\'')
         
-    valid_exts = (".jpg", ".jpeg", ".png", ".tiff")
-    image_files = [f for f in os.listdir(raw_dir) if f.lower().endswith(valid_exts)]
-    
-    if not image_files:
-        print("Klasörde analiz edilecek fotoğraf bulunamadı. Lütfen data/raw klasörüne fotoğraf ekleyin.")
-    else:
-        with open(report_path, mode="w", newline="", encoding="utf-8") as file:
-            writer = csv.writer(file)
-            writer.writerow(["Dosya Adi", "AI Izi Bulundu Mu?", "Bulunan Izler", "Kullanilan Yazilim (Software)"])
+        if user_image_path.lower() in ['q', 'exit']:
+            print("Program kapatılıyor...")
+            break
             
-            for img_name in image_files:
-                img_path = os.path.join(raw_dir, img_name)
-                print(f"\n{'='*40}\nİnceleniyor: {img_name}...")
-                
-                tags = analyze_metadata(img_path)
-                
-                if tags:
-                    is_ai, signatures = detect_ai_signature(tags)
-                    sig_text = " | ".join(signatures) if is_ai else "Temiz (Izi Yok)"
-                    software = str(tags.get("Image Software", "Bilinmiyor"))
-                else:
-                    is_ai, sig_text, software = False, "EXIF Verisi Yok", "Bilinmiyor"
-                
-                writer.writerow([img_name, "Evet" if is_ai else "Hayir", sig_text, software])
+        if not user_image_path:
+            continue
+            
+        print(f"\n--- Analiz Başlatılıyor: {user_image_path} ---")
+        result_dict = analyze_metadata(user_image_path)
         
-        print(f"\n[Başarılı] Tüm testler tamamlandı!")
-        print(f"[Rapor Kaydedildi] Sonuçları Excel'de açmak için: {report_path}")
+        if result_dict["success"]:
+            print("[BAŞARILI] Analiz tamamlandı. JSON çıktısı S6 entegrasyonuna hazır. [cite: 89]")
+        else:
+            print(f"[BAŞARISIZ] Neden: {result_dict.get('error_message')}")
