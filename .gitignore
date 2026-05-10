@@ -13,3 +13,8 @@ Thumbs.db
 
 # Data
 data/raw/
+
+# Models & Virtual Env
+*.h5
+venv/
+tuning/
