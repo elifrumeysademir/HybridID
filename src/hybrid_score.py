@@ -29,9 +29,9 @@ from PIL import Image
 # ─────────────────────────────────────────────────────────────────────────────
 # Ağırlıklar & Sabitler
 # ─────────────────────────────────────────────────────────────────────────────
-W_METADATA = 0.15   # EXIF/AI imza katmanı ağırlığı (Düşürüldü)
-W_ELA      = 0.30   # ELA görsel analiz katmanı ağırlığı (Düşürüldü)
-W_CNN      = 0.55   # CNN derin öğrenme katmanı ağırlığı (Artırıldı)
+W_METADATA = 0.20   # EXIF/AI imza katmanı ağırlığı
+W_ELA      = 0.35   # ELA görsel analiz katmanı ağırlığı
+W_CNN      = 0.45   # CNN derin öğrenme katmanı ağırlığı
 
 VERDICT_THRESHOLD = 0.40  # HybridScore > bu değer → FAKE (Daha hassas yapıldı)
 

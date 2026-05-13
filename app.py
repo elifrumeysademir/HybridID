@@ -490,3 +490,5 @@ if st.session_state.get("analyzed") and "result" in st.session_state:
             st.dataframe(exif_df, use_container_width=True, height=280)
         else:
             st.info("EXIF metadata bulunamadı veya görsel temizlenmiş.")
+
+# Touch for Streamlit reload
