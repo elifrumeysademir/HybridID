@@ -162,7 +162,8 @@ def compute_hybrid_score(
     meta_dict = meta_result.get("extracted_metadata", {})
     has_camera_info = "Image Make" in meta_dict or "Image Model" in meta_dict or "EXIF DateTimeOriginal" in meta_dict
 
-    if not has_camera_info and ela_score < 0.15:
+    # Test sonuçlarına göre AI fotoğraflarının doğal pikselleri ELA'da 0.35 - 0.45 arası bir gürültü üretiyor.
+    if not has_camera_info and ela_score < 0.45:
         # CNN modelini dinlemeden skoru doğrudan yapay zeka şüphesiyle artır
         cnn_score = max(cnn_score, 0.85)
 
