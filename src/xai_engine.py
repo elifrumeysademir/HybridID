@@ -123,9 +123,12 @@ def get_gradcam_heatmap(model, image_array: np.ndarray) -> np.ndarray:
 
     Adımlar:
       1. Son conv katmanı ve sub-model bulunur.
-      2. GradientTape ile son conv çıktısına göre gradyan hesaplanır.
-      3. Gradyanlar kanallar bazında ortalanır (önem ağırlıkları).
-      4. Feature map'ler ağırlıklı toplanır → ReLU → normalize.
+      2. Son katmanın aktivasyonu geçici olarak linear (logit) yapılır (doygunluğu önlemek için).
+      3. Tahmin edilen sınıfa göre (FAKE vs REAL) kayıp fonksiyonu (loss) belirlenir.
+      4. GradientTape ile son conv çıktısına göre gradyan hesaplanır.
+      5. Orijinal aktivasyon fonksiyonu geri yüklenir.
+      6. Gradyanlar kanallar bazında ortalanır (önem ağırlıkları).
+      7. Feature map'ler ağırlıklı toplanır → ReLU → normalize.
 
     Args:
         model       : Yüklenmiş Keras modeli.
@@ -139,9 +142,20 @@ def get_gradcam_heatmap(model, image_array: np.ndarray) -> np.ndarray:
     # ── ResNet50 sub-modelini ve son conv katmanını bul ───────────────────────
     resnet_sub = None
     for _layer in model.layers:
-        if hasattr(_layer, "layers") and _layer.name == "resnet50":
-            resnet_sub = _layer
-            break
+        if hasattr(_layer, "layers"):
+            # Alt modelin conv katmanları içerip içermediğini kontrol et
+            try:
+                _layer.get_layer(LAST_CONV_LAYER)
+                resnet_sub = _layer
+                break
+            except ValueError:
+                # Alternatif olarak conv ismine sahip katman var mı bak
+                for lyr in _layer.layers:
+                    if "conv" in lyr.name.lower():
+                        resnet_sub = _layer
+                        break
+                if resnet_sub is not None:
+                    break
 
     if resnet_sub is not None:
         last_conv = None
@@ -179,40 +193,58 @@ def get_gradcam_heatmap(model, image_array: np.ndarray) -> np.ndarray:
         )
         use_sub = False
 
+    # ── Son katman aktivasyonunu linear (logit) yap ve gradyan doygunluğunu önle ──
+    output_layer = model.layers[-1]
+    original_activation = output_layer.activation
+    
+    # ── Önce normal sigmoid tahmini yap (hangi sınıfı açıklayacağımızı bilmek için) ──
+    pred_prob = float(model.predict(image_array, verbose=0)[0][0])
+    
+    # Aktivasyonu linear olarak değiştir
+    output_layer.activation = tf.keras.activations.linear
+
     # ── GradientTape: input'u izle, conv_outputs üzerinden gradyan al ────────
     inputs_cast = tf.cast(image_array, tf.float32)
     inputs_var  = tf.Variable(inputs_cast, trainable=True, dtype=tf.float32)
 
-    with tf.GradientTape() as tape:
-        tape.watch(inputs_var)
-        if use_sub:
-            conv_outputs, _resnet_out = sub_grad_model(inputs_var, training=False)
-            # Dış modeli tam zincir üzerinde çalıştır
-            # Gap → BN → Dense → Output katmanlarını elle geç
-            x = model.get_layer("gap")(conv_outputs)
-            x = model.get_layer("bn_head")(x, training=False)
-            x = model.get_layer("dense_head")(x)
-            x = model.get_layer("dropout_head")(x, training=False)
-            predictions = model.get_layer("output")(x)
-        else:
-            conv_outputs, predictions = sub_grad_model(inputs_var, training=False)
-        loss = predictions[:, 0]
-
-    # Gradyanları conv_outputs ile zincirle
-    grads = tape.gradient(loss, conv_outputs)
-    if grads is None:
-        # Son çare: inputs_var'a göre gradyan al, conv çıktısını yeniden hesapla
-        with tf.GradientTape() as tape2:
-            tape2.watch(inputs_var)
+    try:
+        with tf.GradientTape() as tape:
+            tape.watch(inputs_var)
             if use_sub:
-                conv_outputs, _ = sub_grad_model(inputs_var, training=False)
+                conv_outputs, _resnet_out = sub_grad_model(inputs_var, training=False)
+                # Dış model katmanlarını alt modelden sonrasını sırayla işle
+                sub_idx = -1
+                for idx, lyr in enumerate(model.layers):
+                    if lyr == resnet_sub:
+                        sub_idx = idx
+                        break
+                
+                x = conv_outputs
+                for lyr in model.layers[sub_idx+1:]:
+                    if hasattr(lyr, "training") or "bn" in lyr.name.lower() or "dropout" in lyr.name.lower():
+                        x = lyr(x, training=False)
+                    else:
+                        x = lyr(x)
+                logits = x
             else:
-                conv_outputs, _ = sub_grad_model(inputs_var, training=False)
-            loss2 = tf.reduce_mean(conv_outputs)
-        grads = tape2.gradient(loss2, conv_outputs)
-        if grads is None:
-            raise RuntimeError("Gradyan hesaplanamadı.")
+                conv_outputs, logits = sub_grad_model(inputs_var, training=False)
+            
+            # Eğer tahmin FAKE ise (olasılık > 0.5) -> FAKE logitini açıkla (loss = logit)
+            # Eğer tahmin REAL ise (olasılık <= 0.5) -> REAL logitini açıkla (loss = -logit)
+            if pred_prob > 0.5:
+                loss = logits[:, 0]
+            else:
+                loss = -logits[:, 0]
 
+        # Gradyanları conv_outputs ile zincirle
+        grads = tape.gradient(loss, conv_outputs)
+        
+    finally:
+        # Keras modelinin orijinal sigmoid aktivasyonunu mutlaka geri yükle
+        output_layer.activation = original_activation
+
+    if grads is None:
+        raise RuntimeError("Gradyan hesaplanamadı.")
 
     # Kanallar bazında global ortalama → önem ağırlıkları
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))  # (filters,)

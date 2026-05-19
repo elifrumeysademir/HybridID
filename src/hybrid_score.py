@@ -156,14 +156,15 @@ def compute_hybrid_score(
     # ela_score zaten 0-1 arasında normalize edilmiş (ela_analyzer)
 
     # --- YENİ EKLENEN YAPAY ZEKA KURALI ---
-    # Eğer fotoğrafta kamera bilgisi (Make/Model/Tarih) yoksa VE 
-    # ELA skoru sıfıra çok yakınsa (fotoğrafta kamera gürültüsü veya montaj izi yoksa, kusursuzsa)
-    # Bu %99 ihtimalle doğrudan kaydedilmiş bir AI fotoğrafıdır.
+    # Eğer fotoğrafta metadata HİÇ yoksa (AI üretimleri genellikle 0 etiket içerir) VE 
+    # ELA skoru < 0.45 ise (fotoğrafta kamera gürültüsü veya montaj izi yoksa, sentetikse)
+    # Bu %99 ihtimalle doğrudan kaydedilmiş temiz bir AI fotoğrafıdır.
+    # Gerçek fotoğraflar (EXIF'i silinmiş olsa dahi) genellikle birkaç etiket barındırır.
     meta_dict = meta_result.get("extracted_metadata", {})
-    has_camera_info = "Image Make" in meta_dict or "Image Model" in meta_dict or "EXIF DateTimeOriginal" in meta_dict
+    is_metadata_empty = len(meta_dict) == 0
 
     # Test sonuçlarına göre AI fotoğraflarının doğal pikselleri ELA'da 0.35 - 0.45 arası bir gürültü üretiyor.
-    if not has_camera_info and ela_score < 0.45:
+    if is_metadata_empty and ela_score < 0.45:
         # CNN modelini dinlemeden skoru doğrudan yapay zeka şüphesiyle artır
         cnn_score = max(cnn_score, 0.85)
 

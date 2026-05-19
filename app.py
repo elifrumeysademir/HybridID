@@ -230,37 +230,44 @@ st.markdown("""
 col_upload, col_preview = st.columns([1.2, 1])
 
 with col_upload:
-    st.markdown('<div class="section-header">📁 Görsel Yükle</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📁 Görsel Yükle / Seç</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         "JPG, JPEG veya PNG yükleyin",
         type=["jpg", "jpeg", "png"],
         key="main_uploader",
         label_visibility="collapsed",
     )
+    
+    local_file_path = st.text_input("Veya sunucudaki görsel yolunu girin (ör: data/test_images/Test.jpg)", value="")
 
-    if uploaded_file:
-        st.success(f"✅ **{uploaded_file.name}** yüklendi ({uploaded_file.size / 1024:.1f} KB)")
+    if uploaded_file or local_file_path:
+        target_name = uploaded_file.name if uploaded_file else os.path.basename(local_file_path)
+        st.success(f"✅ **{target_name}** hazır.")
         analyze_btn = st.button("🚀 Analizi Başlat", key="analyze_btn", use_container_width=True)
     else:
-        st.info("⬆️ Bir görsel yükleyerek analizi başlatın.")
+        st.info("⬆️ Bir görsel yükleyin veya görsel yolu girerek analizi başlatın.")
         analyze_btn = False
 
 with col_preview:
-    if uploaded_file:
+    if uploaded_file or (local_file_path and os.path.exists(local_file_path)):
         st.markdown('<div class="section-header">👁️ Önizleme</div>', unsafe_allow_html=True)
-        pil_img = Image.open(uploaded_file)
+        img_to_open = uploaded_file if uploaded_file else local_file_path
+        pil_img = Image.open(img_to_open)
         st.image(pil_img, use_container_width=True, caption=f"{pil_img.size[0]}×{pil_img.size[1]} px")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Analiz Akışı
 # ─────────────────────────────────────────────────────────────────────────────
-if uploaded_file and analyze_btn:
+if (uploaded_file or local_file_path) and analyze_btn:
     # Geçici dosyaya yaz
-    suffix = os.path.splitext(uploaded_file.name)[1].lower()
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    if uploaded_file:
+        suffix = os.path.splitext(uploaded_file.name)[1].lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_path = tmp.name
+    else:
+        tmp_path = os.path.abspath(local_file_path)
 
     # Model yükle
     with st.spinner("🔄 CNN modeli hazırlanıyor..."):
@@ -452,13 +459,14 @@ if st.session_state.get("analyzed") and "result" in st.session_state:
     with tab_report:
         st.markdown('<div class="section-header">📥 Raporu İndir</div>', unsafe_allow_html=True)
 
+        base_filename = os.path.splitext(os.path.basename(result.get("file_path", "rapor")))[0]
         dl_col1, dl_col2 = st.columns(2)
 
         with dl_col1:
             st.download_button(
                 label="📄 PDF Raporu İndir",
                 data=pdf_bytes,
-                file_name=f"hybridid_rapor_{os.path.splitext(uploaded_file.name)[0]}.pdf",
+                file_name=f"hybridid_rapor_{base_filename}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 key="pdf_download",
@@ -470,7 +478,7 @@ if st.session_state.get("analyzed") and "result" in st.session_state:
             st.download_button(
                 label="📊 CSV Raporu İndir",
                 data=csv_str,
-                file_name=f"hybridid_rapor_{os.path.splitext(uploaded_file.name)[0]}.csv",
+                file_name=f"hybridid_rapor_{base_filename}.csv",
                 mime="text/csv",
                 use_container_width=True,
                 key="csv_download",
